@@ -18,6 +18,7 @@
    [app.rpc :as-alias rpc]
    [app.rpc.commands.teams :as teams]
    [app.rpc.doc :as-alias doc]
+   [app.rpc.effective-permissions :as eperms]
    [app.rpc.helpers :as rph]
    [app.rpc.permissions :as perms]
    [app.rpc.quotes :as quotes]
@@ -56,11 +57,17 @@
        :can-edit (or is-owner is-admin can-edit)
        :can-read true})))
 
+(defn- get-read-permissions
+  [cfg profile-id project-id]
+  (or (get-permissions cfg profile-id project-id)
+      (when-let [team-id (eperms/team-id-for-project cfg project-id)]
+        (eperms/org-owner-team-permissions cfg profile-id team-id))))
+
 (def has-edit-permissions?
   (perms/make-edition-predicate-fn get-permissions))
 
 (def has-read-permissions?
-  (perms/make-read-predicate-fn get-permissions))
+  (perms/make-read-predicate-fn get-read-permissions))
 
 (def check-edition-permissions!
   (perms/make-check-fn has-edit-permissions?))
@@ -159,10 +166,10 @@
   {::doc/added "1.18"
    ::rpc/id-type :project
    ::sm/params schema:get-project}
-  [{:keys [::db/pool]} {:keys [::rpc/profile-id id]}]
+  [{:keys [::db/pool] :as cfg} {:keys [::rpc/profile-id id]}]
   (dm/with-open [conn (db/open pool)]
     (let [project (db/get-by-id conn :project id)]
-      (check-read-permissions! conn profile-id id)
+      (check-read-permissions! cfg profile-id id)
       project)))
 
 
@@ -230,8 +237,8 @@
    ::webhooks/batch-key (webhooks/key-fn ::rpc/profile-id :id)
    ::webhooks/event? true
    ::db/transaction true}
-  [{:keys [::db/conn]} {:keys [::rpc/profile-id id team-id is-pinned] :as params}]
-  (check-read-permissions! conn profile-id id)
+  [{:keys [::db/conn] :as cfg} {:keys [::rpc/profile-id id team-id is-pinned] :as params}]
+  (check-read-permissions! cfg profile-id id)
   (db/exec-one! conn [sql:update-project-pin team-id id profile-id is-pinned is-pinned])
   nil)
 

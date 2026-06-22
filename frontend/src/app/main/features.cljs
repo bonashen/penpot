@@ -68,7 +68,9 @@
 (defn get-enabled-features
   "An explicit lookup of enabled features for the current team"
   [state team-id]
-  (let [team (dm/get-in state [:teams team-id])]
+  (let [team (or (dm/get-in state [:teams team-id])
+                 (when (= team-id (dm/get-in state [:current-team :id]))
+                   (:current-team state)))]
     (-> global-enabled-features
         (set/union (get state :features-runtime #{}))
         (set/intersection cfeat/no-migration-features)

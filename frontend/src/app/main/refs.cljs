@@ -38,8 +38,11 @@
 (def team
   (l/derived (fn [state]
                (let [team-id (:current-team-id state)
-                     teams   (:teams state)]
-                 (get teams team-id)))
+                     teams   (:teams state)
+                     team    (:current-team state)]
+                 (or (get teams team-id)
+                     (when (= (:id team) team-id)
+                       team))))
              st/state))
 
 (def project
