@@ -3,6 +3,7 @@
    [app.common.data.macros :as dm]
    [app.common.types.nitrate-permissions :as nitrate-perms]
    [app.common.uri :as u]
+   [app.common.uuid :as uuid]
    [app.config :as cf]
    [app.main.data.common :as dcm]
    [app.main.data.modal :as modal]
@@ -11,10 +12,11 @@
    [app.main.repo :as rp]
    [app.main.router :as rt]
    [app.main.store :as st]
+   [app.util.dom :as dom]
    [app.util.i18n :refer [tr]]
+   [app.util.session-state :as ss]
    [app.util.storage :as storage]
    [beicon.v2.core :as rx]
-   [cuerdas.core :as str]
    [potok.v2.core :as ptk]))
 
 (def ^:private nitrate-entry-active-key ::nitrate-entry-active)
@@ -90,28 +92,12 @@
 (def nitrate-checkout-finish-error-token "nitrate-checkout-finish-error")
 (def nitrate-checkout-cancelled-token "nitrate-checkout-cancelled")
 
-(defn- append-query-param
-  [url key value]
-  (let [assoc-q  (fn [u]
-                   (update u :query
-                           (fn [q]
-                             (-> (u/query-string->map (or q ""))
-                                 (assoc (name key) value)
-                                 u/map->query-string))))
-        parsed   (u/uri url)
-        fragment (:fragment parsed)]
-    (if (str/blank? fragment)
-      (str (assoc-q parsed))
-      (-> parsed
-          (assoc :fragment (str (assoc-q (u/parse fragment))))
-          str))))
-
 (defn build-nitrate-callback-urls
   "Build the success/error/cancel callback URLs from a base URL by appending
   a `subscription` query param identifying the outcome."
   [base-url]
   (let [build (fn [token]
-                (append-query-param base-url :subscription token))]
+                (dom/append-query-param base-url :subscription token))]
     {:success-callback      (build "subscribed-to-penpot-nitrate")
      :error-callback        (build nitrate-checkout-error-token)
      :finish-error-callback (build nitrate-checkout-finish-error-token)
@@ -262,14 +248,31 @@
 
 
 (defn add-team-to-org
-  [{:keys [team-id organization-id] :as params}]
+  "Adds a team to an organization after checking whether the target
+  organization requires a fresh Nitrate SSO session. When SSO is required,
+  stores the pending action and redirects to the provider so the dashboard
+  can resume the operation after the callback."
+  [{:keys [team-id organization-id]}]
   (ptk/reify ::add-team-to-org
     ptk/WatchEvent
     (watch [_ _ _]
-      (->> (rp/cmd! ::add-team-to-organization {:team-id team-id :organization-id organization-id})
-           (rx/mapcat
-            (fn [_]
-              (rx/of (modal/hide))))))))
+      (let [pending-id   (str (uuid/next))
+            callback-url (dom/append-query-param (rt/get-current-href)
+                                                 :pending-action-id pending-id)]
+        (->> (rp/cmd! :check-nitrate-sso {:organization-id organization-id :url callback-url})
+             (rx/mapcat
+              (fn [{:keys [authorized redirect-uri]}]
+                (if authorized
+                  (->> (rp/cmd! ::add-team-to-organization {:team-id team-id :organization-id organization-id})
+                       (rx/mapcat (fn [_] (rx/of (modal/hide)))))
+                  (if redirect-uri
+                    (do
+                      (ss/save-pending-action! pending-id {:type            :add-team-to-org
+                                                           :team-id         team-id
+                                                           :organization-id organization-id})
+                      (rx/of (rt/nav-raw :uri (str redirect-uri))))
+                    (rx/empty))))))))))
+
 
 (defn- fetch-orgs-allowed
   "Returns an rx observable of an `orgs-allowed` map (org-id -> boolean).
