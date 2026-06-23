@@ -260,10 +260,8 @@
         (when-not (db/is-row-deleted? team)
           (-> team
               (decode-row)
-              (assoc :is-default (= team-id default-team-id)
-                     :is-owner false
-                     :is-admin false
-                     :can-edit false)
+              (merge eperms/viewer-role-flags)
+              (assoc :is-default (= team-id default-team-id))
               (process-permissions)))))))
 
 (defn get-team

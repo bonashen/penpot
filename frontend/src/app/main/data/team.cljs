@@ -15,6 +15,7 @@
    [app.common.uri :as u]
    [app.config :as cf]
    [app.main.data.event :as ev]
+   [app.main.data.helpers :as dsh]
    [app.main.data.media :as di]
    [app.main.data.modal :as modal]
    [app.main.data.profile :as dp]
@@ -250,11 +251,7 @@
   (ptk/reify ::team-initialized
     ptk/WatchEvent
     (watch [_ state _]
-      (let [teams (get state :teams)
-            team  (get teams team-id)
-            team  (or team
-                      (when (= team-id (dm/get-in state [:current-team :id]))
-                        (:current-team state)))]
+      (let [team (dsh/lookup-team state team-id)]
         (if team
           (let [permissions (get team :permissions)
                 features    (get team :features)]

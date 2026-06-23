@@ -14,13 +14,18 @@
    [app.db :as db]
    [app.nitrate :as nitrate]))
 
-(def ^:private team-viewer-permissions
+(def viewer-role-flags
+  "Role flags granted to a non-member organization owner: read-only.
+  Shared so callers that build full team/file rows shape permissions the
+  same way the permission lookups do."
   {:is-owner false
    :is-admin false
-   :can-edit false
-   :can-read true})
+   :can-edit false})
 
-(defn file-viewer-permissions
+(def ^:private team-viewer-permissions
+  (assoc viewer-role-flags :can-read true))
+
+(defn- file-viewer-permissions
   [profile-id]
   (assoc team-viewer-permissions
          :type :membership
