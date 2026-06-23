@@ -42,14 +42,36 @@
            :canvas-h 0
            :dpr 1}))
 
+(defn- blit-offscreen->canvas!
+  "Copy the WebGL2 OffscreenCanvas drawing buffer onto a visible 2D canvas.
+
+  We cannot use `ctx2d.drawImage(os-canvas)`: on Firefox + NVIDIA (proprietary
+  driver) a WebGL2-backed OffscreenCanvas yields fully transparent pixels when
+  used as a `drawImage` / `transferToImageBitmap` / `createImageBitmap` source,
+  so the viewer renders black. Instead read the default framebuffer with
+  `readPixels` and write it with `putImageData`, flipping vertically (GL origin
+  is bottom-left, canvas is top-left). Works across browsers/GPUs."
+  [ctx2d os-canvas vis-w vis-h]
+  (let [gl  (.getContext os-canvas "webgl2")
+        buf (js/Uint8Array. (* vis-w vis-h 4))]
+    (.bindFramebuffer gl (.-FRAMEBUFFER gl) nil)
+    (.readPixels gl 0 0 vis-w vis-h (.-RGBA gl) (.-UNSIGNED_BYTE gl) buf)
+    (let [img (.createImageData ctx2d vis-w vis-h)
+          dst (.-data img)
+          row (* vis-w 4)]
+      (dotimes [y vis-h]
+        (let [src-off (* (- vis-h 1 y) row)
+              dst-off (* y row)]
+          (.set dst (.subarray buf src-off (+ src-off row)) dst-off)))
+      (.putImageData ctx2d img 0 0))))
+
 (defn- draw-bitmap!
   [canvas os-canvas object-id vis-w vis-h finish]
   (ts/raf
    (fn []
      (let [ctx2d (.getContext canvas "2d")]
        (.clearRect ctx2d 0 0 vis-w vis-h)
-       ;; Draw directly from OffscreenCanvas so it can be reused across passes.
-       (.drawImage ctx2d os-canvas 0 0 vis-w vis-h)
+       (blit-offscreen->canvas! ctx2d os-canvas vis-w vis-h)
        (dom/set-attribute! canvas "id" (str "screenshot-" object-id))
        (finish)))))
 
